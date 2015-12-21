@@ -14,6 +14,7 @@ public class Obfuscator {
     private static final Pattern[] patterns = new Pattern[VAR_TYPES.length + 1];
     private List<String> initializedVars = new ArrayList<>();
     private Map<Integer, String> jumps = new HashMap<>();
+    private List< Block> lines = new ArrayList<>();
 
     static {
         for (int i = 0; i < VAR_TYPES.length; i++) {
@@ -32,19 +33,24 @@ public class Obfuscator {
             writer = new PrintWriter(new FileOutputStream(obfuscated));
             Map<String, String> renames = new HashMap<String, String>();
 
-            StringBuilder begin = new StringBuilder();
-            StringBuilder otherPart = new StringBuilder();
+            lines.add(new Block());
             int cnt = -1;
+
             while (in.hasNextLine()) {
                 if (jumps.keySet().contains(cnt)) {
-                    otherPart.append(jumps.get(cnt));
+                    lines.get(lines.size() - 1).appendToTail(jumps.get(cnt));
                 }
                 cnt++;
+
                 String line = in.nextLine();
 
                 if (firstLines(line)) {
-                    begin.append(line);
-                    begin.append('\n');
+                    lines.get(0).appendToHead(line);
+                    continue;
+                }
+
+                if (methodDefinition(line)) {
+                    lines.add(new Block().appendToHead(line));
                     continue;
                 }
 
@@ -57,32 +63,32 @@ public class Obfuscator {
                         String newName = RandomUtils.randomString();
                         line = line.replace(name, newName);
                         renames.put(name, newName);
+//                        line = replaceNames(line, renames);
 
                         initializedVars.add(name);
-                        begin.append(line);
-                        begin.append('\n');
+
+                        lines.get(lines.size() - 1).appendToHead(line);
                         continue;
                     }
                 }
 //                writer.println(line);
-                otherPart.append(line);
-                otherPart.append('\n');
+                lines.get(lines.size() - 1).appendToTail(line);
 
                 if (cnt != 0 && cnt % 15 == 0) {
-                    otherPart.append(generateDummy());
-                    otherPart.append('\n');
+                    lines.get(lines.size() - 1).appendToTail(generateDummy());
                 }
 
                 if (cnt != 0 && cnt % 25 == 0) {
-                    jumps.put(cnt *2, line);
-                    otherPart.append("\tgoto " + cnt*2 + ";");
-                    otherPart.append('\n');
+                    jumps.put(cnt * 2, line);
+                    lines.get(lines.size() - 1).appendToTail("\tgoto " + cnt * 2 + ";");
                 }
 
             }
 
-            writer.print(begin.toString());
-            writer.print(otherPart.toString());
+            for (Block block : lines) {
+                writer.print(block.toString());
+            }
+
         } finally {
             in.close();
             writer.close();
@@ -94,13 +100,20 @@ public class Obfuscator {
         Pattern imp = Pattern.compile("\\s*#\\s*include\\s*.*\\s*");
         Pattern def = Pattern.compile("\\s*#\\s*define\\s*.*\\s*");
         Pattern cl = Pattern.compile("\\s*.*\\s*class\\s*[A-Z][\\w0-9]*\\s*\\{\\s*");
-//        Pattern main = Pattern.compile("\\s*void\\s+.+\\s+\\(.*\\)\\s*\\{");
         Pattern us = Pattern.compile("\\s*using\\s+.+\\s*;\\s*");
+
         Matcher m1 = imp.matcher(s);
         Matcher m2 = cl.matcher(s);
         Matcher m3 = def.matcher(s);
         Matcher m4 = us.matcher(s);
+
         return m1.matches() || m2.matches() || m3.matches() || m4.matches();
+    }
+
+    private boolean methodDefinition(String s) {
+        Pattern main = Pattern.compile("[a-z]+\\s+\\w[\\w\\d]*\\s*\\(.*\\)\\s*\\{");
+        Matcher m5 = main.matcher(s);
+        return m5.find();
     }
 
     private Matcher matchVarDefinition(String s) {
